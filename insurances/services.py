@@ -14,7 +14,7 @@ class BaseInsurerService(ABC):
     """
     @abstractmethod
     def _map_keys(self, data):
-        """Map JSON keys to model fields."""
+        """Validate and return model field data."""
         pass
 
     @transaction.atomic
@@ -176,13 +176,13 @@ class DefaultInsurerService(BaseInsurerService):
         self.mapped_data = self._map_keys(data)
 
     def _map_keys(self, data):
-        """Map JSON keys to model fields (1:1 mapping)."""
+        """Validate model field data."""
         mapped = {}
-        for model_field, json_key in self.key_mapping.items():
-            if json_key in data:
-                mapped[model_field] = data[json_key]
+        for model_field in self.key_mapping.keys():
+            if model_field in data:
+                mapped[model_field] = data[model_field]
             elif model_field in self.mandatory_fields:
-                raise ValidationError(_(f"Missing required field: {json_key}"))
+                raise ValidationError(_(f"Missing required field: {model_field}"))
         return mapped
 
 
@@ -239,27 +239,27 @@ class PasargadInsurerService(BaseInsurerService):
         self.mapped_data = self._map_keys(data)
 
     def _map_keys(self, data):
-        """Map JSON keys to model fields for Pasargad."""
+        """Validate model field data."""
         mapped = {}
-        for model_field, json_key in self.key_mapping.items():
-            if json_key in data:
-                mapped[model_field] = data[json_key]
+        for model_field in self.key_mapping.keys():
+            if model_field in data:
+                mapped[model_field] = data[model_field]
             elif model_field in self.mandatory_fields:
-                raise ValidationError(_(f"Missing required field: {json_key}"))
+                raise ValidationError(_(f"Missing required field: {model_field}"))
         return mapped
 
 
 class HekmatInsurerService(BaseInsurerService):
     """
     Service for Hekmat insurer.
-    Uses 'name'/'family_name' and optional email.
+    Uses 'name'/'family_name' for input, mapped to model fields by serializer.
     """
     insurer_name = "hekmat"  # Case-insensitive match
 
     key_mapping = {
         'insurer': 'insurer',
-        'first_name': 'name',  # Different JSON key
-        'last_name': 'family_name',  # Different JSON key
+        'first_name': 'name',  # Input key mapped to model field by serializer
+        'last_name': 'family_name',  # Input key mapped to model field by serializer
         'email': 'email',
         'phone_number': 'phone_number',
         'national_id': 'national_id',
@@ -301,11 +301,11 @@ class HekmatInsurerService(BaseInsurerService):
         self.mapped_data = self._map_keys(data)
 
     def _map_keys(self, data):
-        """Map JSON keys to model fields for Hekmat."""
+        """Validate model field data."""
         mapped = {}
-        for model_field, json_key in self.key_mapping.items():
-            if json_key in data:
-                mapped[model_field] = data[json_key]
+        for model_field in self.key_mapping.keys():
+            if model_field in data:
+                mapped[model_field] = data[model_field]
             elif model_field in self.mandatory_fields:
-                raise ValidationError(_(f"Missing required field: {json_key}"))
+                raise ValidationError(_(f"Missing required field: {model_field}"))
         return mapped

@@ -7,30 +7,10 @@ from .services import BaseInsurerService, DefaultInsurerService, PasargadInsurer
 class BaseInsuredDataSerializer(serializers.Serializer):
     """
     Generic serializer for all insurers.
-    Defines fixed keys, with mandatory fields enforced by service.
+    Accepts dynamic fields based on insurer-specific key mappings.
+    Validates mandatory fields and transforms to model fields.
     """
-    # Mandatory fields (minimal set)
-    insurer = serializers.CharField(max_length=100, required=True, write_only=True)
-    first_name = serializers.CharField(max_length=100, required=True, write_only=True)
-    last_name = serializers.CharField(max_length=100, required=True, write_only=True)
-    phone_number = serializers.CharField(max_length=11, required=True, write_only=True)
-    national_id = serializers.CharField(max_length=10, required=True, write_only=True)
-    birth_date = serializers.DateField(required=True, write_only=True)
-    insurer_id = serializers.CharField(max_length=50, required=True, write_only=True)
-    policyholder_name = serializers.CharField(max_length=100, required=True, write_only=True)
-    policyholder_id = serializers.CharField(max_length=50, required=True, write_only=True)
-    start_date = serializers.DateField(required=True, write_only=True)
-    end_date = serializers.DateField(required=True, write_only=True)
-    policy_id = serializers.CharField(max_length=50, required=True, write_only=True)
-    plan_name = serializers.CharField(max_length=100, required=True, write_only=True)
-    plan_id = serializers.CharField(max_length=50, required=True, write_only=True)
-    insured_id = serializers.CharField(max_length=50, required=True, write_only=True)
-
-    # Optional fields
-    email = serializers.EmailField(required=False, allow_blank=True, write_only=True)
-    father_name = serializers.CharField(max_length=100, required=False, allow_blank=True, write_only=True)
-    place_of_issue = serializers.CharField(max_length=100, required=False, allow_blank=True, write_only=True)
-    confirmation_date = serializers.DateField(required=False, allow_null=True, write_only=True)
+    data = serializers.DictField(child=serializers.CharField(allow_blank=True), write_only=True)
 
     # Response fields
     personal_details = serializers.SerializerMethodField(read_only=True)
@@ -40,45 +20,56 @@ class BaseInsuredDataSerializer(serializers.Serializer):
     plan_response = serializers.SerializerMethodField(read_only=True)
     insured_status_response = serializers.SerializerMethodField(read_only=True)
 
-    def validate_phone_number(self, value):
-        """Validate Iranian mobile number format (09xxxxxxxxx)."""
+    def validate_data(self, value):
+        """Validate phone_number and national_id formats if present."""
         import re
-        if not re.match(r'^09\d{9}$', value):
-            raise serializers.ValidationError(_('Enter a valid Iranian mobile number.'))
-        return value
-
-    def validate_national_id(self, value):
-        """Ensure national_id is 10 digits."""
-        import re
-        if not re.match(r'^\d{10}$', value):
-            raise serializers.ValidationError(_('National ID must be exactly 10 digits.'))
-        return value
-
-    def validate_policy_id(self, value):
-        """Ensure policy_id is unique."""
-        if Policy.objects.filter(unique_id=value).exists():
-            raise serializers.ValidationError(_('A policy with this ID already exists.'))
-        return value
-
-    def validate_plan_id(self, value):
-        """Ensure plan_id is unique."""
-        if Plan.objects.filter(unique_id=value).exists():
-            raise serializers.ValidationError(_('A plan with this ID already exists.'))
-        return value
-
-    def validate_insured_id(self, value):
-        """Ensure insured_id is unique."""
-        if InsuredStatus.objects.filter(unique_id=value).exists():
-            raise serializers.ValidationError(_('An insured status with this ID already exists.'))
+        if 'phone_number' in value:
+            if not re.match(r'^09\d{9}$', value['phone_number']):
+                raise serializers.ValidationError(_('Enter a valid Iranian mobile number.'))
+        if 'national_id' in value:
+            if not re.match(r'^\d{10}$', value['national_id']):
+                raise serializers.ValidationError(_('National ID must be exactly 10 digits.'))
         return value
 
     def validate(self, data):
-        """Additional validation."""
-        if data['start_date'] >= data['end_date']:
-            raise serializers.ValidationError(_('Policy start date must be before end date.'))
-        if data.get('confirmation_date') and data['confirmation_date'] < data['start_date']:
-            raise serializers.ValidationError(_('Confirmation date cannot be before start date.'))
-        return data
+        """Validate and transform payload based on insurer-specific service."""
+        payload = data.get('data', {})
+        insurer = payload.get('insurer', '')
+        service_class = self.get_insurer_service(insurer)
+
+        # Validate mandatory fields
+        missing_fields = []
+        for model_field in service_class.mandatory_fields:
+            json_key = next((k for k, v in service_class.key_mapping.items() if v == model_field), None)
+            if json_key and json_key not in payload:
+                missing_fields.append(json_key)
+        if missing_fields:
+            raise serializers.ValidationError(_(f"Missing required fields: {', '.join(missing_fields)}"))
+
+        # Transform payload to model field names
+        transformed_data = {}
+        for json_key, value in payload.items():
+            # Find model field for the input key
+            model_field = next((k for k, v in service_class.key_mapping.items() if v == json_key), json_key)
+            transformed_data[model_field] = value
+
+        # Additional validations
+        if 'start_date' in transformed_data and 'end_date' in transformed_data:
+            if transformed_data['start_date'] >= transformed_data['end_date']:
+                raise serializers.ValidationError(_('Policy start date must be before end date.'))
+        if 'confirmation_date' in transformed_data and 'start_date' in transformed_data:
+            if transformed_data.get(
+                'confirmation_date') and transformed_data['confirmation_date'] < transformed_data['start_date']:
+                raise serializers.ValidationError(_('Confirmation date cannot be before start date.'))
+        if 'policy_id' in transformed_data and Policy.objects.filter(unique_id=transformed_data['policy_id']).exists():
+            raise serializers.ValidationError(_('A policy with this ID already exists.'))
+        if 'plan_id' in transformed_data and Plan.objects.filter(unique_id=transformed_data['plan_id']).exists():
+            raise serializers.ValidationError(_('A plan with this ID already exists.'))
+        if 'insured_id' in transformed_data and InsuredStatus.objects.filter(
+            unique_id=transformed_data['insured_id']).exists():
+            raise serializers.ValidationError(_('An insured status with this ID already exists.'))
+
+        return transformed_data
 
     def get_personal_details(self, obj):
         """Return full name for response."""
@@ -105,9 +96,8 @@ class BaseInsuredDataSerializer(serializers.Serializer):
         return str(obj['insured_status'])
 
     def create(self, validated_data):
-        """Use appropriate insurer service based on insurer name."""
-        insurer = validated_data.get('insurer', '')
-        service_class = self.get_insurer_service(insurer)
+        """Use appropriate insurer service to save data."""
+        service_class = self.get_insurer_service(validated_data.get('insurer', ''))
         service = service_class(validated_data)
         return service.save()
 
