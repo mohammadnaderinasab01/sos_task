@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from .models import Insured, Insurer, Policyholder, Policy, Plan, InsuredStatus
@@ -5,66 +6,16 @@ from django.db.utils import IntegrityError
 from django.core.exceptions import ValidationError
 
 
-class BaseInsurerService:
+class BaseInsurerService(ABC):
     """
-    Generic service for processing insurer data.
-    Handles persistence and enforces creation order.
+    Abstract base class for insurer services.
+    Enforces persistence and creation order.
+    Subclasses define key mappings, mandatory fields, and insurer name for service selection.
     """
-    # Fixed key mapping (matches serializer)
-    key_mapping = {
-        'insurer': 'insurer',
-        'first_name': 'first_name',
-        'last_name': 'last_name',
-        'email': 'email',
-        'phone_number': 'phone_number',
-        'national_id': 'national_id',
-        'birth_date': 'birth_date',
-        'father_name': 'father_name',
-        'place_of_issue': 'place_of_issue',
-        'insurer_id': 'insurer_id',
-        'policyholder_name': 'policyholder_name',
-        'policyholder_id': 'policyholder_id',
-        'start_date': 'start_date',
-        'end_date': 'end_date',
-        'policy_id': 'policy_id',
-        'confirmation_date': 'confirmation_date',
-        'plan_name': 'plan_name',
-        'plan_id': 'plan_id',
-        'insured_id': 'insured_id',
-    }
-
-    # Mandatory fields
-    mandatory_fields = {
-        'insurer',
-        'first_name',
-        'last_name',
-        'phone_number',
-        'national_id',
-        'birth_date',
-        'insurer_id',
-        'policyholder_name',
-        'policyholder_id',
-        'start_date',
-        'end_date',
-        'policy_id',
-        'plan_name',
-        'plan_id',
-        'insured_id',
-    }
-
-    def __init__(self, data):
-        self.data = data or {}
-        self.mapped_data = self._map_keys(data)
-
+    @abstractmethod
     def _map_keys(self, data):
         """Map JSON keys to model fields."""
-        mapped = {}
-        for model_field, json_key in self.key_mapping.items():
-            if json_key in data:
-                mapped[model_field] = data[json_key]
-            elif model_field in self.mandatory_fields:
-                raise ValidationError(_(f"Missing required field: {json_key}"))
-        return mapped
+        pass
 
     @transaction.atomic
     def save(self):
@@ -171,3 +122,190 @@ class BaseInsurerService:
             'unique_id': self.mapped_data['insured_id'],
         }
         return InsuredStatus.objects.create(**insured_status_data)
+
+
+class DefaultInsurerService(BaseInsurerService):
+    """
+    Default service for insurers.
+    Uses exact model field names with minimal mandatory fields.
+    """
+    insurer_name = None  # Matches any unmatched insurer name
+
+    key_mapping = {
+        'insurer': 'insurer',
+        'first_name': 'first_name',
+        'last_name': 'last_name',
+        'email': 'email',
+        'phone_number': 'phone_number',
+        'national_id': 'national_id',
+        'birth_date': 'birth_date',
+        'father_name': 'father_name',
+        'place_of_issue': 'place_of_issue',
+        'insurer_id': 'insurer_id',
+        'policyholder_name': 'policyholder_name',
+        'policyholder_id': 'policyholder_id',
+        'start_date': 'start_date',
+        'end_date': 'end_date',
+        'policy_id': 'policy_id',
+        'confirmation_date': 'confirmation_date',
+        'plan_name': 'plan_name',
+        'plan_id': 'plan_id',
+        'insured_id': 'insured_id',
+    }
+
+    mandatory_fields = {
+        'insurer',
+        'first_name',
+        'last_name',
+        'phone_number',
+        'national_id',
+        'birth_date',
+        'insurer_id',
+        'policyholder_name',
+        'policyholder_id',
+        'start_date',
+        'end_date',
+        'policy_id',
+        'plan_name',
+        'plan_id',
+        'insured_id',
+    }
+
+    def __init__(self, data):
+        self.data = data or {}
+        self.mapped_data = self._map_keys(data)
+
+    def _map_keys(self, data):
+        """Map JSON keys to model fields (1:1 mapping)."""
+        mapped = {}
+        for model_field, json_key in self.key_mapping.items():
+            if json_key in data:
+                mapped[model_field] = data[json_key]
+            elif model_field in self.mandatory_fields:
+                raise ValidationError(_(f"Missing required field: {json_key}"))
+        return mapped
+
+
+class PasargadInsurerService(BaseInsurerService):
+    """
+    Service for Pasargad insurer.
+    Uses specific key mappings and requires email.
+    """
+    insurer_name = "pasargad"  # Case-insensitive match
+
+    key_mapping = {
+        'insurer': 'insurer',
+        'first_name': 'first_name',
+        'last_name': 'last_name',
+        'email': 'email',
+        'phone_number': 'phone_number',
+        'national_id': 'national_id',
+        'birth_date': 'birth_date',
+        'father_name': 'father_name',
+        'place_of_issue': 'place_of_issue',
+        'insurer_id': 'insurer_id',
+        'policyholder_name': 'policyholder_name',
+        'policyholder_id': 'policyholder_id',
+        'start_date': 'start_date',
+        'end_date': 'end_date',
+        'policy_id': 'policy_id',
+        'confirmation_date': 'confirmation_date',
+        'plan_name': 'plan_name',
+        'plan_id': 'plan_id',
+        'insured_id': 'insured_id',
+    }
+
+    mandatory_fields = {
+        'insurer',
+        'first_name',
+        'last_name',
+        'email',  # Mandatory for Pasargad
+        'phone_number',
+        'national_id',
+        'birth_date',
+        'insurer_id',
+        'policyholder_name',
+        'policyholder_id',
+        'start_date',
+        'end_date',
+        'policy_id',
+        'plan_name',
+        'plan_id',
+        'insured_id',
+    }
+
+    def __init__(self, data):
+        self.data = data or {}
+        self.mapped_data = self._map_keys(data)
+
+    def _map_keys(self, data):
+        """Map JSON keys to model fields for Pasargad."""
+        mapped = {}
+        for model_field, json_key in self.key_mapping.items():
+            if json_key in data:
+                mapped[model_field] = data[json_key]
+            elif model_field in self.mandatory_fields:
+                raise ValidationError(_(f"Missing required field: {json_key}"))
+        return mapped
+
+
+class HekmatInsurerService(BaseInsurerService):
+    """
+    Service for Hekmat insurer.
+    Uses 'name'/'family_name' and optional email.
+    """
+    insurer_name = "hekmat"  # Case-insensitive match
+
+    key_mapping = {
+        'insurer': 'insurer',
+        'first_name': 'name',  # Different JSON key
+        'last_name': 'family_name',  # Different JSON key
+        'email': 'email',
+        'phone_number': 'phone_number',
+        'national_id': 'national_id',
+        'birth_date': 'birth_date',
+        'father_name': 'father_name',
+        'place_of_issue': 'place_of_issue',
+        'insurer_id': 'insurer_id',
+        'policyholder_name': 'policyholder_name',
+        'policyholder_id': 'policyholder_id',
+        'start_date': 'start_date',
+        'end_date': 'end_date',
+        'policy_id': 'policy_id',
+        'confirmation_date': 'confirmation_date',
+        'plan_name': 'plan_name',
+        'plan_id': 'plan_id',
+        'insured_id': 'insured_id',
+    }
+
+    mandatory_fields = {
+        'insurer',
+        'first_name',
+        'last_name',
+        'phone_number',
+        'national_id',
+        'birth_date',
+        'insurer_id',
+        'policyholder_name',
+        'policyholder_id',
+        'start_date',
+        'end_date',
+        'policy_id',
+        'plan_name',
+        'plan_id',
+        'insured_id',
+    }
+
+    def __init__(self, data):
+        self.data = data or {}
+        self.mapped_data = self._map_keys(data)
+
+    def _map_keys(self, data):
+        """Map JSON keys to model fields for Hekmat."""
+        mapped = {}
+        for model_field, json_key in self.key_mapping.items():
+            if json_key in data:
+                mapped[model_field] = data[json_key]
+            elif model_field in self.mandatory_fields:
+                raise ValidationError(_(f"Missing required field: {json_key}"))
+        return mapped

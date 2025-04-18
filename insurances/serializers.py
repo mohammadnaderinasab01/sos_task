@@ -1,15 +1,15 @@
 from rest_framework import serializers
 from django.utils.translation import gettext_lazy as _
 from .models import Insured, Insurer, Policyholder, Policy, Plan, InsuredStatus
-from .services import BaseInsurerService
+from .services import BaseInsurerService, DefaultInsurerService, PasargadInsurerService, HekmatInsurerService
 
 
 class BaseInsuredDataSerializer(serializers.Serializer):
     """
     Generic serializer for all insurers.
-    Defines fixed keys and validation rules.
+    Defines fixed keys, with mandatory fields enforced by service.
     """
-    # Mandatory fields
+    # Mandatory fields (minimal set)
     insurer = serializers.CharField(max_length=100, required=True, write_only=True)
     first_name = serializers.CharField(max_length=100, required=True, write_only=True)
     last_name = serializers.CharField(max_length=100, required=True, write_only=True)
@@ -105,9 +105,24 @@ class BaseInsuredDataSerializer(serializers.Serializer):
         return str(obj['insured_status'])
 
     def create(self, validated_data):
-        """Use BaseInsurerService to save data."""
-        service = BaseInsurerService(validated_data)
+        """Use appropriate insurer service based on insurer name."""
+        insurer = validated_data.get('insurer', '')
+        service_class = self.get_insurer_service(insurer)
+        service = service_class(validated_data)
         return service.save()
+
+    def get_insurer_service(self, insurer):
+        """Select insurer service based on case-insensitive insurer name."""
+        services = [
+            PasargadInsurerService,
+            HekmatInsurerService,
+            DefaultInsurerService,  # Default last to ensure specific names take precedence
+        ]
+        for service in services:
+            if hasattr(service, 'insurer_name') and service.insurer_name:
+                if insurer.lower() == service.insurer_name.lower():
+                    return service
+        return DefaultInsurerService  # Fallback for unmatched or empty insurer
 
     def to_representation(self, instance):
         """Customize response format."""
